@@ -24,7 +24,7 @@ describe("Hydro", function () {
     );
     this.weth = await this.router.WETH();
 
-    const Hydro = await ethers.getContractFactory("Hydro");
+    const Hydro = await ethers.getContractFactory("H2O");
     this.hydro = await Hydro.deploy(routerAddress, tokenBAddress);
     await this.hydro.deployed();
     await this.hydro.setup(
@@ -74,5 +74,30 @@ describe("Hydro", function () {
         amount.mul(95).div(100)
       );
     });
+
+    it("is txlimit working", async function () {
+      const totalSupply = await this.hydro.totalSupply();
+      const amount = totalSupply.div(100);
+
+      await this.hydro.setIsTxLimitExempt(this.account1.address, false);
+
+      // max limit 0.1% of total supply
+      await this.hydro.setTxLimit(1, 1000);
+      const transfer = this.hydro.transfer(
+        this.account2.address,
+        amount.mul(2)
+      );
+      await expect(transfer).to.revertedWith("TX Limit Exceeded");
+
+      await this.hydro.setIsTxLimitExempt(this.account1.address, true);
+      await this.hydro.transfer(this.account2.address, amount.mul(2));
+      await expect(await this.hydro.balanceOf(this.account2.address)).to.equal(
+        amount.mul(2)
+      );
+    });
   });
+
+  describe("fees", async function () {
+    
+  })
 });

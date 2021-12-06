@@ -12,7 +12,7 @@ import "./interfaces/IUniswapV2Factory.sol";
 import "./DividendDistributor.sol";
 import "./TransferHelper.sol";
 
-contract Hydro is IERC20, Ownable, TransferHelper {
+contract H2O is IERC20, Ownable, TransferHelper {
     using Address for address;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
@@ -20,13 +20,13 @@ contract Hydro is IERC20, Ownable, TransferHelper {
     address DEAD = 0x000000000000000000000000000000000000dEaD;
     address ZERO = 0x0000000000000000000000000000000000000000;
 
-    string _name = "Hydro";
-    string _symbol = "HYDRO";
+    string _name = "H2O";
+    string _symbol = "H2O";
     uint8 constant _decimals = 18;
 
     uint256 _totalSupply = 1e9 * (10**_decimals);
-    uint256 public _maxTxAmount = (_totalSupply * 1) / 100;
-    uint256 public _maxWalletSize = (_totalSupply * 1) / 100;
+    uint256 public _maxTxAmount = (_totalSupply * 8) / 100;
+    uint256 public _maxWalletSize = (_totalSupply * 8) / 100;
 
     mapping(address => uint256) _balances;
     mapping(address => mapping(address => uint256)) _allowances;
