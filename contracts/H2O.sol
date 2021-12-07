@@ -12,6 +12,8 @@ import "./interfaces/IUniswapV2Factory.sol";
 import "./DividendDistributor.sol";
 import "./TransferHelper.sol";
 
+// import "hardhat/console.sol";
+
 contract H2O is IERC20, Ownable, TransferHelper {
     using Address for address;
     using SafeMath for uint256;
@@ -25,16 +27,14 @@ contract H2O is IERC20, Ownable, TransferHelper {
     uint8 constant _decimals = 18;
 
     uint256 _totalSupply = 1e9 * (10**_decimals);
-    uint256 public _maxTxAmount = (_totalSupply * 8) / 100;
-    uint256 public _maxWalletSize = (_totalSupply * 8) / 100;
+    uint256 public _maxWalletSize = (_totalSupply * 1) / 100;
 
     mapping(address => uint256) _balances;
     mapping(address => mapping(address => uint256)) _allowances;
 
     mapping(address => bool) isFeeExempt;
-    mapping(address => bool) isTxLimitExempt;
+    mapping(address => bool) isWalletLimitExempt;
     mapping(address => bool) isDividendExempt;
-    mapping(address => uint256) lastSell;
 
     // Buy Tax 5% (1%Liquidity, 4%Rewards)
     // Sell Tax 10% (2% Liquidity, 8% Rewards)
@@ -45,12 +45,6 @@ contract H2O is IERC20, Ownable, TransferHelper {
     uint256 buyTotalFee = 500;
     uint256 sellTotalFee = 1000;
     uint256 feeDenominator = 10000;
-    uint256 public _sellMultiplierNumerator = 150;
-    uint256 public _sellMultiplierDenominator = 100;
-    uint256 public _dumpProtectionNumerator = 50;
-    uint256 public _dumpProtectionDenominator = 100 * _maxTxAmount;
-    uint256 public _dumpProtectionThreshold = 3;
-    uint256 public _dumpProtectionTimer = 15 seconds;
 
     uint256 targetLiquidity = 35;
     uint256 targetLiquidityDenominator = 100;
@@ -71,9 +65,10 @@ contract H2O is IERC20, Ownable, TransferHelper {
         TransferHelper(_routerAddress, _tokenB)
     {
         isFeeExempt[msg.sender] = true;
-        isTxLimitExempt[address(this)] = true;
-        isTxLimitExempt[msg.sender] = true;
-        isTxLimitExempt[routerAddress] = true;
+        isWalletLimitExempt[address(this)] = true;
+        isWalletLimitExempt[msg.sender] = true;
+        isWalletLimitExempt[routerAddress] = true;
+        isWalletLimitExempt[pair] = true;
         isDividendExempt[pair] = true;
         isDividendExempt[address(this)] = true;
         isDividendExempt[DEAD] = true;
@@ -109,6 +104,36 @@ contract H2O is IERC20, Ownable, TransferHelper {
         return _balances[account];
     }
 
+    function increaseAllowance(address spender, uint256 addedValue)
+        public
+        virtual
+        returns (bool)
+    {
+        _approve(
+            msg.sender,
+            spender,
+            _allowances[msg.sender][spender] + addedValue
+        );
+        return true;
+    }
+
+    function decreaseAllowance(address spender, uint256 subtractedValue)
+        public
+        virtual
+        returns (bool)
+    {
+        uint256 currentAllowance = _allowances[msg.sender][spender];
+        require(
+            currentAllowance >= subtractedValue,
+            "ERC20: decreased allowance below zero"
+        );
+        unchecked {
+            _approve(msg.sender, spender, currentAllowance - subtractedValue);
+        }
+
+        return true;
+    }
+
     function allowance(address holder, address spender)
         external
         view
@@ -120,12 +145,24 @@ contract H2O is IERC20, Ownable, TransferHelper {
 
     function approve(address spender, uint256 amount)
         public
+        virtual
         override
         returns (bool)
     {
-        _allowances[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
+        _approve(msg.sender, spender, amount);
         return true;
+    }
+
+    function _approve(
+        address owner,
+        address spender,
+        uint256 amount
+    ) internal virtual {
+        require(owner != address(0), "ERC20: approve from the zero address");
+        require(spender != address(0), "ERC20: approve to the zero address");
+
+        _allowances[owner][spender] = amount;
+        emit Approval(owner, spender, amount);
     }
 
     function transfer(address recipient, uint256 amount)
@@ -141,13 +178,18 @@ contract H2O is IERC20, Ownable, TransferHelper {
         address recipient,
         uint256 amount
     ) external override returns (bool) {
-        if (_allowances[sender][msg.sender] != type(uint256).max) {
-            _allowances[sender][msg.sender] =
-                _allowances[sender][msg.sender] -
-                amount;
+        _transferFrom(sender, recipient, amount);
+
+        uint256 currentAllowance = _allowances[sender][msg.sender];
+        require(
+            currentAllowance >= amount,
+            "ERC20: transfer amount exceeds allowance"
+        );
+        unchecked {
+            _approve(sender, msg.sender, currentAllowance - amount);
         }
 
-        return _transferFrom(sender, recipient, amount);
+        return true;
     }
 
     function _transferFrom(
@@ -162,17 +204,17 @@ contract H2O is IERC20, Ownable, TransferHelper {
 
         bool selling = recipient == pair;
 
-        checkTxLimit(sender, amount);
-
         if (recipient != pair && recipient != DEAD) {
-            if (!isTxLimitExempt[recipient])
+            if (!isWalletLimitExempt[recipient])
                 checkWalletLimit(recipient, amount);
         }
 
-        _balances[sender] = _balances[sender] - amount;
+        unchecked {
+            _balances[sender] = _balances[sender] - amount;
+        }
 
         uint256 amountReceived = shouldTakeFee(sender)
-            ? takeFee(selling, sender, recipient, amount)
+            ? takeFee(selling, sender, amount)
             : amount;
 
         if (shouldSwapBack(recipient)) {
@@ -201,7 +243,9 @@ contract H2O is IERC20, Ownable, TransferHelper {
         address recipient,
         uint256 amount
     ) internal returns (bool) {
-        _balances[sender] = _balances[sender] - amount;
+        unchecked {
+            _balances[sender] = _balances[sender] - amount;
+        }
         _balances[recipient] = _balances[recipient] + amount;
         emit Transfer(sender, recipient, amount);
         return true;
@@ -211,13 +255,6 @@ contract H2O is IERC20, Ownable, TransferHelper {
         require(
             _balances[recipient] + amount <= _maxWalletSize,
             "Transfer amount exceeds the bag size."
-        );
-    }
-
-    function checkTxLimit(address sender, uint256 amount) internal view {
-        require(
-            amount <= _maxTxAmount || isTxLimitExempt[sender],
-            "TX Limit Exceeded"
         );
     }
 
@@ -238,30 +275,9 @@ contract H2O is IERC20, Ownable, TransferHelper {
         return !isFeeExempt[sender];
     }
 
-    function getTotalFee(
-        bool selling,
-        address sender,
-        uint256 amount
-    ) public view returns (uint256) {
+    function getTotalFee(bool selling) public view returns (uint256) {
         if (selling) {
-            if (lastSell[sender] + _dumpProtectionTimer <= block.timestamp)
-                return
-                    (sellTotalFee * _sellMultiplierNumerator) /
-                    _sellMultiplierDenominator +
-                    (
-                        amount > swapThreshold * _dumpProtectionThreshold
-                            ? (amount *
-                                sellTotalFee *
-                                _dumpProtectionNumerator) /
-                                _dumpProtectionDenominator
-                            : 0
-                    );
-            else
-                return
-                    (sellTotalFee * _sellMultiplierNumerator) /
-                    _sellMultiplierDenominator +
-                    (_maxTxAmount * sellTotalFee * _dumpProtectionNumerator) /
-                    _dumpProtectionDenominator;
+            return sellTotalFee;
         }
         return buyTotalFee;
     }
@@ -269,13 +285,9 @@ contract H2O is IERC20, Ownable, TransferHelper {
     function takeFee(
         bool selling,
         address sender,
-        address recipient,
         uint256 amount
     ) internal returns (uint256) {
-        uint256 feeAmount = (amount * getTotalFee(selling, sender, amount)) /
-            feeDenominator;
-        if (recipient == pair) lastSell[sender] = block.timestamp;
-
+        uint256 feeAmount = (amount * getTotalFee(selling)) / feeDenominator;
         _balances[address(this)] = _balances[address(this)] + feeAmount;
         emit Transfer(sender, address(this), feeAmount);
 
@@ -292,16 +304,10 @@ contract H2O is IERC20, Ownable, TransferHelper {
     }
 
     function swapBack(uint256 amount) internal swapping {
-        uint256 swapHolderProtection = amount >
-            swapThreshold * _dumpProtectionThreshold
-            ? amount +
-                (_dumpProtectionNumerator * amount * amount) /
-                (_dumpProtectionDenominator * 2)
-            : amount;
+        uint256 swapHolderProtection = amount;
+
         if (_balances[address(this)] < swapHolderProtection)
             swapHolderProtection = _balances[address(this)];
-        if (swapHolderProtection > _maxTxAmount)
-            swapHolderProtection = _maxTxAmount;
 
         uint256 dynamicLiquidityFeeOfTotal = isOverLiquified(
             targetLiquidity,
@@ -362,11 +368,6 @@ contract H2O is IERC20, Ownable, TransferHelper {
         try distributor.deposit{value: amount}() {} catch {}
     }
 
-    function setTxLimit(uint256 numerator, uint256 divisor) external onlyOwner {
-        require(numerator > 0 && divisor > 0 && divisor <= 10000);
-        _maxTxAmount = (_totalSupply * numerator) / divisor;
-    }
-
     function setReflectToken(
         address newToken,
         address[] memory toNativeRoute,
@@ -401,28 +402,6 @@ contract H2O is IERC20, Ownable, TransferHelper {
         _maxWalletSize = (_totalSupply * numerator) / divisor;
     }
 
-    function setSellMultiplier(uint256 numerator, uint256 divisor)
-        external
-        onlyOwner
-    {
-        require(divisor > 0 && numerator / divisor <= 3, "Taxes too high");
-        _sellMultiplierNumerator = numerator;
-        _sellMultiplierDenominator = divisor;
-    }
-
-    function setDumpMultiplier(
-        uint256 numerator,
-        uint256 divisor,
-        uint256 dumpThreshold,
-        uint256 dumpTimer
-    ) external onlyOwner {
-        require(divisor > 0 && numerator / divisor <= 2, "Taxes too high");
-        _dumpProtectionNumerator = numerator;
-        _dumpProtectionDenominator = divisor * _maxTxAmount;
-        _dumpProtectionThreshold = dumpThreshold;
-        _dumpProtectionTimer = dumpTimer;
-    }
-
     function setIsDividendExempt(address holder, bool exempt)
         external
         onlyOwner
@@ -440,11 +419,11 @@ contract H2O is IERC20, Ownable, TransferHelper {
         isFeeExempt[holder] = exempt;
     }
 
-    function setIsTxLimitExempt(address holder, bool exempt)
+    function setIsWalletLimitExempt(address holder, bool exempt)
         external
         onlyOwner
     {
-        isTxLimitExempt[holder] = exempt;
+        isWalletLimitExempt[holder] = exempt;
     }
 
     function setFees(
