@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IUniswapV2Factory.sol";
 
+// import "hardhat/console.sol";
+
 abstract contract TransferHelper is Ownable {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
@@ -28,10 +30,7 @@ abstract contract TransferHelper is Ownable {
 
     address public autoLiquidityReceiver;
 
-    constructor(
-        address _routerAddress,
-        address _tokenB
-    ) {
+    constructor(address _routerAddress, address _tokenB) {
         routerAddress = _routerAddress;
         tokenB = _tokenB;
         router = IUniswapV2Router02(_routerAddress);
@@ -52,15 +51,15 @@ abstract contract TransferHelper is Ownable {
 
         isTokenBNative = tokenB == native;
 
-        configureAllowances(routerAddress);
+        onNewRouter(routerAddress, pair);
         checkRoutesValid();
     }
 
-    function resetAllowances(address) internal virtual {
+    function onBeforeNewRouter(address) internal virtual {
         IERC20(tokenB).safeApprove(routerAddress, 0);
     }
 
-    function configureAllowances(address) internal virtual {
+    function onNewRouter(address, address) internal virtual {
         IERC20(tokenB).safeApprove(routerAddress, 0);
         IERC20(tokenB).safeApprove(routerAddress, type(uint128).max);
     }
@@ -71,8 +70,8 @@ abstract contract TransferHelper is Ownable {
         address[] memory _toNativeRoute,
         address[] memory _fromNativeRoute,
         address[] memory _toTokenBRoute
-    ) internal {
-        resetAllowances(routerAddress);
+    ) public onlyOwner {
+        onBeforeNewRouter(routerAddress);
 
         routerAddress = _routerAddress;
         router = IUniswapV2Router02(routerAddress);
@@ -87,7 +86,7 @@ abstract contract TransferHelper is Ownable {
             isTokenBNative = false;
         }
 
-        configureAllowances(routerAddress);
+        onNewRouter(routerAddress, pair);
         checkRoutesValid();
     }
 
@@ -97,9 +96,12 @@ abstract contract TransferHelper is Ownable {
     {
         uint256 balanceBefore = address(this).balance;
 
+        IERC20(address(this)).safeApprove(routerAddress, 0);
+        IERC20(address(this)).safeApprove(routerAddress, type(uint128).max);
+
         router.swapExactTokensForETHSupportingFeeOnTransferTokens(
             amountToSwap,
-            0,
+            1,
             toNativeRoute,
             address(this),
             block.timestamp
@@ -180,7 +182,7 @@ abstract contract TransferHelper is Ownable {
         );
     }
 
-    function checkRoutesValid() view private {
+    function checkRoutesValid() private view {
         require(toNativeRoute[0] == address(this), "toNativeRoute[0] != hydro");
         require(
             toNativeRoute[toNativeRoute.length - 1] == native,

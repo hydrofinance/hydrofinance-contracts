@@ -30,6 +30,11 @@ module.exports = {
       chainId: 3,
       accounts: [privateKey],
     },
+    kovan: {
+      url: "https://kovan.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",
+      chainId: 42,
+      accounts: [privateKey],
+    },
     hardhat: {
       forking: {
         url: `https://eth-mainnet.alchemyapi.io/v2/${infuraKey}`,
@@ -41,7 +46,9 @@ module.exports = {
             balance: 100000000000000000000,
           },
         ],
+        allowUnlimitedContractSize: true,
       },
+      allowUnlimitedContractSize: true,
     },
   },
 };

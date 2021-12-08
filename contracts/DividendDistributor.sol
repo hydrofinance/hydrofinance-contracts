@@ -5,6 +5,9 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IDividendDistributor.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/IWETH.sol";
+
+// import "hardhat/console.sol";
 
 contract DividendDistributor is IDividendDistributor {
     address _hydro;
@@ -109,6 +112,7 @@ contract DividendDistributor is IDividendDistributor {
         toNativeRoute = _toNativeRoute;
         fromNativeRoute = _fromNativeRoute;
         uint256 nativeBal = IERC20(native).balanceOf(address(this));
+
         if (nativeBal > 0 && _token != native) {
             IERC20(native).approve(address(router), nativeBal);
             // than, with new router, move to new token
@@ -206,9 +210,13 @@ contract DividendDistributor is IDividendDistributor {
     function deposit() external payable override onlyToken {
         uint256 balanceBefore = TOKEN.balanceOf(address(this));
 
-        router.swapExactETHForTokensSupportingFeeOnTransferTokens{
-            value: msg.value
-        }(0, fromNativeRoute, address(this), block.timestamp);
+        if (native == fromNativeRoute[fromNativeRoute.length - 1]) {
+            IWETH(native).deposit{value: msg.value}();
+        } else {
+            router.swapExactETHForTokensSupportingFeeOnTransferTokens{
+                value: msg.value
+            }(0, fromNativeRoute, address(this), block.timestamp);
+        }
 
         uint256 amount = TOKEN.balanceOf(address(this)) - balanceBefore;
 
@@ -310,6 +318,7 @@ contract DividendDistributor is IDividendDistributor {
         uint256 shareholderTotalDividends = getCumulativeDividends(
             shares[shareholder].amount
         );
+        // return (share * dividendsPerShare) / dividendsPerShareAccuracyFactor;
         uint256 shareholderTotalExcluded = shares[shareholder].totalExcluded;
 
         if (

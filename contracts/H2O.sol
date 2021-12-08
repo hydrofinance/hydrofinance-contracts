@@ -320,6 +320,7 @@ contract H2O is IERC20, Ownable, TransferHelper {
             .mul(dynamicLiquidityFeeOfTotal)
             .div(feeOfTotalDenominator)
             .div(2);
+
         uint256 amountToSwap = swapHolderProtection - amountToLiquify;
 
         uint256 amountMOVR = swapToMOVR(amountToSwap);
@@ -506,16 +507,22 @@ contract H2O is IERC20, Ownable, TransferHelper {
         try distributor.process(distributorGas) {} catch {}
     }
 
-    function configureAllowances(address _routerAddress) internal override {
-        super.configureAllowances(_routerAddress);
-        _allowances[msg.sender][_routerAddress] = type(uint256).max;
-        _allowances[address(this)][_routerAddress] = type(uint256).max;
+    function onNewRouter(address _routerAddress, address _pair) internal override {
+        super.onNewRouter(_routerAddress, _pair);
+        _approve(msg.sender, _routerAddress, 0);
+        _approve(msg.sender, _routerAddress, type(uint256).max);
+        _approve(address(this), _routerAddress, 0);
+        _approve(address(this), _routerAddress, type(uint256).max);
+
+        isWalletLimitExempt[_routerAddress] = true;
+        isWalletLimitExempt[_pair] = true;
+        isDividendExempt[_pair] = true;
     }
 
-    function resetAllowances(address _routerAddress) internal override {
-        super.resetAllowances(_routerAddress);
-        _allowances[msg.sender][_routerAddress] = 0;
-        _allowances[address(this)][_routerAddress] = 0;
+    function onBeforeNewRouter(address _routerAddress) internal override {
+        super.onBeforeNewRouter(_routerAddress);
+        _approve(msg.sender, _routerAddress, 0);
+        _approve(address(this), _routerAddress, 0);
     }
 
     function currentlyServing() public view returns (address token) {

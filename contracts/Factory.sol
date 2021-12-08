@@ -52,27 +52,27 @@ contract Factory {
             _routerAddress,
             MIGRATOR_APPROVAL_DELAY
         );
-        token.setIsDividendExempt(address(migrator), true);
-        token.setIsFeeExempt(address(migrator), true);
-        token.setIsWalletLimitExempt(address(migrator), true);
-        IERC20(address(token)).safeTransfer(address(migrator), liquidityAmount);
-        migrator.initializeLiquidity{value: msg.value}(
-            _tokenBAddress,
-            _tokenBToNativeRoute,
-            _nativeToTokenBRoute
-        );
+        // token.setIsDividendExempt(address(migrator), true);
+        // token.setIsFeeExempt(address(migrator), true);
+        // token.setIsWalletLimitExempt(address(migrator), true);
+        // IERC20(address(token)).safeTransfer(address(migrator), liquidityAmount);
+        // migrator.initializeLiquidity{value: msg.value}(
+        //     _tokenBAddress,
+        //     _tokenBToNativeRoute,
+        //     _nativeToTokenBRoute
+        // );
 
-        migrator.transferOwnership(_multisigAddress);
+        // migrator.transferOwnership(_multisigAddress);
 
-        airdrop = new Airdrop(token, 1 weeks);
-        // wait with changing ownership after it's configured
-        airdrop.transferOwnership(msg.sender);
-        token.setIsDividendExempt(address(airdrop), true);
-        token.setIsFeeExempt(address(airdrop), true);
-        token.setIsWalletLimitExempt(address(airdrop), true);
-        IERC20(address(token)).safeTransfer(address(airdrop), airdropAmount);
+        // airdrop = new Airdrop(token, 1 weeks);
+        // // wait with changing ownership after it's configured
+        // airdrop.transferOwnership(msg.sender);
+        // token.setIsDividendExempt(address(airdrop), true);
+        // token.setIsFeeExempt(address(airdrop), true);
+        // token.setIsWalletLimitExempt(address(airdrop), true);
+        // IERC20(address(token)).safeTransfer(address(airdrop), airdropAmount);
 
-        _handleTeamTokens(teamAmount, _multisigAddress);
+        // _handleTeamTokens(teamAmount, _multisigAddress);
     }
 
     function _configureToken(

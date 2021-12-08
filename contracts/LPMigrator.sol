@@ -11,7 +11,7 @@ import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/IUniswapV2Factory.sol";
 import "./interfaces/IWETH.sol";
 
-// import "hardhat/console.sol";
+import "hardhat/console.sol";
 
 contract LPMigrator is Ownable {
     using SafeERC20 for IERC20;
@@ -19,10 +19,10 @@ contract LPMigrator is Ownable {
 
     struct RouterCandidate {
         address router;
-        address tokebB;
+        address tokenB;
+        uint256 proposedTime;
         address[] tokenBToNativeRoute;
         address[] nativeToTokenBRoute;
-        uint256 proposedTime;
     }
 
     address public routerAddress;
@@ -46,6 +46,7 @@ contract LPMigrator is Ownable {
         tokenAddress = _tokenAddress;
         approvalDelay = _approvalDelay;
         routerAddress = _routerAddress;
+        initialized = false;
     }
 
     function proposeRouter(
@@ -56,7 +57,7 @@ contract LPMigrator is Ownable {
     ) public onlyOwner {
         routerCandidate = RouterCandidate({
             router: _routerAddress,
-            tokebB: _tokenB,
+            tokenB: _tokenB,
             tokenBToNativeRoute: _tokenBToNativeRoute,
             nativeToTokenBRoute: _nativeToTokenBRoute,
             proposedTime: block.timestamp
@@ -72,11 +73,9 @@ contract LPMigrator is Ownable {
             "Delay has not passed"
         );
 
-        emit UpgradeRouter(routerCandidate.router);
-
         _removeLiquidity();
         routerAddress = routerCandidate.router;
-        tokenBAddress = routerCandidate.tokebB;
+        tokenBAddress = routerCandidate.tokenB;
         tokenBToNativeRoute = routerCandidate.tokenBToNativeRoute;
         nativeToTokenBRoute = routerCandidate.nativeToTokenBRoute;
 
@@ -84,6 +83,8 @@ contract LPMigrator is Ownable {
         routerCandidate.proposedTime = 5000000000;
 
         _addLiquidity();
+
+        emit UpgradeRouter(routerCandidate.router);
     }
 
     function initializeLiquidity(
