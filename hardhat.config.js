@@ -1,7 +1,7 @@
 require("@nomiclabs/hardhat-waffle");
 
 const fs = require("fs");
-const privateKey = fs.readFileSync(".secret").toString().trim();
+const privateKeys = JSON.parse(fs.readFileSync(".secret.json"));
 const infuraKey = fs.readFileSync(".infurasecret").toString().trim();
 
 module.exports = {
@@ -18,22 +18,22 @@ module.exports = {
     moonriver: {
       url: "https://rpc.moonriver.moonbeam.network",
       chainId: 1285,
-      accounts: [privateKey],
+      accounts: privateKeys,
     },
     moonbeamAlpha: {
       url: "https://rpc.testnet.moonbeam.network",
       chainId: 1287,
-      accounts: [privateKey],
+      accounts: privateKeys,
     },
     ropsten: {
       url: "https://ropsten.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",
       chainId: 3,
-      accounts: [privateKey],
+      accounts: privateKeys,
     },
     kovan: {
       url: "https://kovan.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",
       chainId: 42,
-      accounts: [privateKey],
+      accounts: privateKeys,
     },
     hardhat: {
       forking: {

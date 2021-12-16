@@ -1,17 +1,25 @@
 const hardhat = require("hardhat");
 
 const ethers = hardhat.ethers;
-const lpNativeAmount = ethers.utils.parseUnits("0.00001", "ether");
+const lpNativeAmount = ethers.utils.parseUnits("5", "ether");
 const week = 60 * 60 * 24 * 7;
+
+// MOONRIVER
+// huckleberr
+const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
+// rkitty
+const reflectTokenAddress = "0xC2b0435276139731d82Ae2Fa8928c9b9De0761c1";
+const finnAddress = "0x9A92B5EBf1F6F6f7d93696FCD44e5Cf75035A756";
+// finn
+const tokenBAddress = finnAddress;
+const multisigAddress = "0x855246BE70485D9FCcF91d91bD4050CEf60b20cC";
 
 // ALPHA
 // huckleberr
-const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
-// WAN USDT
-const tokenBAddress = "0x2715aA7156634256aE75240C2c5543814660CD04";
-const wMovrAddress = "0x372d0695E75563D9180F8CE31c9924D7e8aaac47";
-const reflectTokenAddress = wMovrAddress;
-const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
+// const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
+// OUR OWN TOKEN
+// const tokenBAddress = "0xc9a83Ae57fCe2eA09a276C0C33ab2F2260BE99F1";
+// const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
 
 // ROPSTEN
 // const routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
@@ -21,28 +29,23 @@ const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
 // const reflectTokenAddress = wMovrAddress;
 // const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
 
-// KOVAN
-// const routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-// // dai
-// const tokenBAddress = "0x4f96fe3b7a6cf9725f59d353f723c1bdb64ca6aa";
-// const wMovrAddress = "0xd0a1e359811322d97991e03f863a0c30c2cf029c";
-// const reflectTokenAddress = wMovrAddress;
-// const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
-
-// uniswap on ropsten
-// const UNISWAP_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-// solar
-// const UNISWAP_ROUTER = "0xAA30eF758139ae4a7f798112902Bf6d65612045f";
-// moonswap alpha
-// const UNISWAP_ROUTER = "0xEA2097B1F1805294797f638A5767A5432D721FFf";
 
 async function main() {
   await hardhat.run("compile");
 
+  const signer = await ethers.getSigner();
   const accountAddress = (await ethers.getSigner()).address;
   console.log("Deploying...", accountAddress);
 
-  const gasPrice = ethers.BigNumber.from("9000000000");
+  const router = await new ethers.Contract(
+    routerAddress,
+    (
+      await hardhat.artifacts.readArtifact("IUniswapV2Router02")
+    ).abi,
+    signer
+  );
+  const wMovrAddress = await router.WETH();
+  // const reflectTokenAddress = wMovrAddress;
 
   const H2O = await ethers.getContractFactory("H2O");
   const h2o = await H2O.deploy(routerAddress, tokenBAddress);
@@ -51,8 +54,8 @@ async function main() {
   console.log("h2o address ", h2o.address);
   await h2o.setup(
     reflectTokenAddress,
-    [reflectTokenAddress, wMovrAddress],
-    [wMovrAddress, reflectTokenAddress]
+    [reflectTokenAddress, finnAddress, wMovrAddress],
+    [wMovrAddress, finnAddress, reflectTokenAddress]
   );
   console.log("setup finished");
 
@@ -70,6 +73,38 @@ async function main() {
     airdropAmount.toString(),
     teamAmount.toString()
   );
+
+  // TEAM TIMELOCKS
+
+  async function createTimelock(partAmount, releaseTime) {
+    const TokenTimelock = await ethers.getContractFactory("TokenTimelock");
+    const timelock = await TokenTimelock.deploy(
+      h2o.address,
+      multisigAddress,
+      releaseTime
+    );
+    console.log("Deploying timelock...");
+    await timelock.deployed();
+    console.log("Timelock deployed", timelock.address, releaseTime);
+
+    await h2o.setIsDividendExempt(timelock.address, true);
+    await h2o.setIsFeeExempt(timelock.address, true);
+    await h2o.setIsWalletLimitExempt(timelock.address, true);
+    console.log("transfer to timelock");
+    await h2o.transfer(timelock.address, partAmount);
+  }
+
+  console.log("transfer to team");
+  const currentTime = Math.round(new Date().getTime() / 1000);
+  const month = 60 * 60 * 24 * 7 * 4;
+  const teamPartAmount = teamAmount.div(5);
+  if (multisigAddress !== accountAddress) {
+    await h2o.transfer(multisigAddress, teamPartAmount);
+  }
+  await createTimelock(teamPartAmount, currentTime + month);
+  await createTimelock(teamPartAmount, currentTime + 2 * month);
+  await createTimelock(teamPartAmount, currentTime + 3 * month);
+  await createTimelock(teamPartAmount, currentTime + 4 * month);
 
   // AIRDROP
 
@@ -117,32 +152,6 @@ async function main() {
   );
   console.log("migrator transfering ownership");
   await migrator.transferOwnership(multisigAddress);
-
-  // const Factory = await ethers.getContractFactory("Factory");
-  // const factory = await Factory.deploy(
-  //   routerAddress,
-  //   tokenBAddress,
-  //   multisigAddress,
-  //   reflectTokenAddress,
-  //   [tokenBAddress, wMovrAddress],
-  //   [wMovrAddress, tokenBAddress],
-  //   {
-  //     value: ethers.utils.parseUnits("0.00001", "ether"),
-  //     // gasLimit: 1073680,
-  //     // gasPrice: ethers.utils.parseUnits("1", "gwei")
-  //   }
-  // );
-  // console.log("Waiting for confirmation...");
-  // await factory.deployed();
-
-  // console.log("Factory deployed to:", factory.address);
-  // console.log("Token address:", await factory.token());
-  // console.log("Migrator address:", await factory.migrator());
-  // console.log("Airdrop address:", await factory.airdrop());
-  // console.log("Timelock1 address:", await factory.timelockAddress1());
-  // console.log("Timelock2 address:", await factory.timelockAddress2());
-  // console.log("Timelock3 address:", await factory.timelockAddress3());
-  // console.log("Timelock4 address:", await factory.timelockAddress4());
 }
 
 main()

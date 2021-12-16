@@ -18,5 +18,8 @@
     "hardhat": "^2.6.5"
   },
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "bignumber.js": "^9.0.1"
+  }
 }
