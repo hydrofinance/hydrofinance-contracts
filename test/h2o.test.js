@@ -62,6 +62,14 @@ describe("Hydro", function () {
       [this.wethAddress, reflectTokenAddress]
     );
 
+    this.distributor = await new ethers.Contract(
+      await this.hydro.distributor(),
+      (
+        await artifacts.readArtifact("DividendDistributor")
+      ).abi,
+      this.account1
+    );
+
     this.pairAddress = await this.hydro.pair();
     this.pair = await new ethers.Contract(
       this.pairAddress,
@@ -397,6 +405,8 @@ describe("Hydro", function () {
       expect(await ust.balanceOf(this.account1.address)).to.not.equal(
         ethers.BigNumber.from(0)
       );
+
+      await this.distributor.process(500000);
     });
 
     it("is changing base pair works", async function () {

@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx hardhat test"
+    "test": "npx hardhat test",
+    "startForkNode": "npx hardhat node --fork https://rpc.moonriver.moonbeam.network --fork-block-number 1135251"
   },
   "devDependencies": {
     "@nomiclabs/hardhat-ethers": "^2.0.2",
@@ -20,6 +21,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "bignumber.js": "^9.0.1"
+    "bignumber.js": "^9.0.1",
+    "web3": "^1.6.1"
   }
 }
