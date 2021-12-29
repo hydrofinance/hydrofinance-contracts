@@ -3,9 +3,9 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./interfaces/IDividendDistributor.sol";
-import "./interfaces/IUniswapV2Router02.sol";
-import "./interfaces/IWETH.sol";
+import "../interfaces/IUniswapV2Router02.sol";
+import "../interfaces/IWETH.sol";
+import "./IDividendDistributor.sol";
 
 // import "hardhat/console.sol";
 

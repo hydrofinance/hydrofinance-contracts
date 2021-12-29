@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "npx hardhat test",
-    "startForkNode": "npx hardhat node --fork https://rpc.moonriver.moonbeam.network --fork-block-number 1135251"
+    "startForkNode": "npx hardhat node --fork https://rpc.moonriver.moonbeam.network --fork-block-number 1135251",
+    "contractsSize": "npx hardhat size-contracts"
   },
   "devDependencies": {
     "@nomiclabs/hardhat-ethers": "^2.0.2",
@@ -16,7 +17,10 @@
     "chai": "^4.3.4",
     "ethereum-waffle": "^3.4.0",
     "ethers": "^5.4.7",
-    "hardhat": "^2.6.5"
+    "hardhat": "^2.6.5",
+    "hardhat-abi-exporter": "^2.6.1",
+    "hardhat-contract-sizer": "^2.3.0",
+    "hardhat-tracer": "^1.0.0-alpha.6"
   },
   "author": "",
   "license": "ISC",

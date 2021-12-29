@@ -4,12 +4,13 @@ const fs = require("fs");
 
 const day = 24 * 60 * 60;
 
-// Uniswap
-const routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-// USDT
-const tokenBAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7";
-// USDC
-const reflectTokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+const FINN_ADDRESS = "0x9A92B5EBf1F6F6f7d93696FCD44e5Cf75035A756";
+const RKITTY_ADDRESS = "0xC2b0435276139731d82Ae2Fa8928c9b9De0761c1";
+
+// Huckle
+const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
+const tokenBAddress = FINN_ADDRESS;
+const reflectTokenAddress = RKITTY_ADDRESS;
 
 describe("Airdrop", function () {
   beforeEach(async function () {

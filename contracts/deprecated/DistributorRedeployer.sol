@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "../H2O.sol";
+import "./H2O.sol";
 import "../interfaces/IUniswapV2Router02.sol";
 
 contract DistributorRedeployer is Ownable {

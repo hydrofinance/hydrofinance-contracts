@@ -3,15 +3,16 @@ const { ethers, artifacts } = require("hardhat");
 
 const day = 24 * 60 * 60;
 
-// Uniswap
-const routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-// DAI
-const tokenBAddress = "0x6b175474e89094c44da98b954eedeac495271d0f";
-// WETH
-const reflectTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const FINN_ADDRESS = "0x9A92B5EBf1F6F6f7d93696FCD44e5Cf75035A756";
+const RKITTY_ADDRESS = "0xC2b0435276139731d82Ae2Fa8928c9b9De0761c1";
 
-// sushi
-const altRouterAddress = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F";
+// Huckle
+const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
+const tokenBAddress = FINN_ADDRESS;
+const reflectTokenAddress = RKITTY_ADDRESS;
+
+// solar
+const altRouterAddress = "0xAA30eF758139ae4a7f798112902Bf6d65612045f";
 
 describe("LPMigrator", function () {
   beforeEach(async function () {
@@ -48,7 +49,14 @@ describe("LPMigrator", function () {
       ).abi,
       this.account1
     );
-    this.weth = await this.router.WETH();
+    this.wethAddress = await this.router.WETH();
+    this.weth = await new ethers.Contract(
+      this.wethAddress,
+      (
+        await artifacts.readArtifact("IERC20")
+      ).abi,
+      this.account1
+    );
 
     const Hydro = await ethers.getContractFactory("H2O");
     this.hydro = await Hydro.deploy(routerAddress, tokenBAddress);
@@ -56,8 +64,8 @@ describe("LPMigrator", function () {
 
     await this.hydro.setup(
       reflectTokenAddress,
-      [reflectTokenAddress, this.weth],
-      [this.weth, reflectTokenAddress]
+      [reflectTokenAddress, this.wethAddress],
+      [this.wethAddress, reflectTokenAddress]
     );
 
     const LPMigrator = await ethers.getContractFactory("LPMigrator");
@@ -75,8 +83,8 @@ describe("LPMigrator", function () {
 
     await this.migrator.initializeLiquidity(
       tokenBAddress,
-      [tokenBAddress, this.weth],
-      [this.weth, tokenBAddress],
+      [tokenBAddress, this.wethAddress],
+      [this.wethAddress, tokenBAddress],
       {
         value: ethers.utils.parseUnits("0.00001", "ether"),
       }
@@ -105,14 +113,14 @@ describe("LPMigrator", function () {
   it("should not change to new router because of timelock", async function () {
     await this.migrator.proposeRouter(
       altRouterAddress,
-      this.weth,
-      [this.weth],
-      [this.weth]
+      this.wethAddress,
+      [this.wethAddress],
+      [this.wethAddress]
     );
 
     const { router, tokenB } = await this.migrator.routerCandidate();
     expect(router).to.equal(altRouterAddress);
-    expect(tokenB).to.equal(this.weth);
+    expect(tokenB).to.equal(this.wethAddress);
 
     await ethers.provider.send("evm_increaseTime", [60 * 60]);
 
@@ -124,9 +132,9 @@ describe("LPMigrator", function () {
   it("should change to new router", async function () {
     await this.migrator.proposeRouter(
       altRouterAddress,
-      this.weth,
-      [this.weth],
-      [this.weth]
+      this.wethAddress,
+      [this.wethAddress],
+      [this.wethAddress]
     );
 
     await ethers.provider.send("evm_increaseTime", [8 * day]);
@@ -140,7 +148,7 @@ describe("LPMigrator", function () {
 
     const lpAddress = await this.altRouterFactory.getPair(
       this.hydro.address,
-      this.weth
+      this.wethAddress
     );
     const lp = await new ethers.Contract(
       lpAddress,
@@ -180,5 +188,42 @@ describe("LPMigrator", function () {
     expect(await this.migrator.approvalDelay()).to.equal(
       ethers.BigNumber.from(8 * day)
     );
+  });
+
+  describe("fake router", async function () {
+    beforeEach(async function () {
+      const FakeRouter = await ethers.getContractFactory("FakeRouter");
+      this.fakeRouter = await FakeRouter.deploy(routerAddress);
+      await this.fakeRouter.deployed();
+    });
+
+    it("should return funds", async function () {
+      const initialHydroBalance = await this.hydro.balanceOf(
+        this.account1.address
+      );
+      const initialWethBalance = await this.weth.balanceOf(
+        this.account1.address
+      );
+
+
+      await this.migrator.proposeRouter(
+        this.fakeRouter.address,
+        this.wethAddress,
+        [this.wethAddress],
+        [this.wethAddress]
+      );
+
+      await ethers.provider.send("evm_increaseTime", [8 * day]);
+
+      await this.migrator.upgradeRouter();
+
+      const afterHydroBalance = await this.hydro.balanceOf(
+        this.account1.address
+      );
+      const afterWethBalance = await this.weth.balanceOf(this.account1.address);
+
+      expect(afterHydroBalance.sub(initialHydroBalance)).to.not.equal(0);
+      expect(afterWethBalance.sub(initialWethBalance)).to.not.equal(0);
+    });
   });
 });

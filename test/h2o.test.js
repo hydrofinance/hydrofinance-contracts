@@ -1,32 +1,44 @@
-const { EtherscanProvider } = require("@ethersproject/providers");
 const { expect } = require("chai");
+const {
+  addLiquidity,
+  buyActions,
+  FINN_ADDRESS,
+  RKITTY_ADDRESS,
+  routerAddress,
+} = require("./utils");
 const { ethers, artifacts } = require("hardhat");
 
-// Uniswap
-const routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-// DAI
-const tokenBAddress = "0x6b175474e89094c44da98b954eedeac495271d0f";
-// WETH
-const reflectTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const day = 24 * 60 * 60;
 
-// sushi
-const altRouterAddress = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F";
+// FINN
+const tokenBAddress = FINN_ADDRESS;
 
-let context = {};
+// solar
+const altRouterAddress = "0xAA30eF758139ae4a7f798112902Bf6d65612045f";
 
 describe("Hydro", function () {
   beforeEach(async function () {
-    this.deadline = Math.round(new Date().getTime() / 1000) + 1000;
+    this.deadline = Math.round(new Date().getTime() / 1000) + 100000;
 
     const result = await ethers.getSigners();
     this.account1 = result[0];
     this.account2 = result[1];
     this.account3 = result[2];
 
+    this.tokenBAddress = tokenBAddress;
+
     this.router = await new ethers.Contract(
       routerAddress,
       (
         await artifacts.readArtifact("IUniswapV2Router02")
+      ).abi,
+      this.account1
+    );
+    const factoryAddress = await this.router.factory();
+    this.factory = await new ethers.Contract(
+      factoryAddress,
+      (
+        await artifacts.readArtifact("IUniswapV2Factory")
       ).abi,
       this.account1
     );
@@ -52,25 +64,47 @@ describe("Hydro", function () {
       ).abi,
       this.account1
     );
-
-    const Hydro = await ethers.getContractFactory("H2O");
-    this.hydro = await Hydro.deploy(routerAddress, tokenBAddress);
-    await this.hydro.deployed();
-    await this.hydro.setup(
-      reflectTokenAddress,
-      [reflectTokenAddress, this.wethAddress],
-      [this.wethAddress, reflectTokenAddress]
-    );
-
-    this.distributor = await new ethers.Contract(
-      await this.hydro.distributor(),
+    this.rkitty = await new ethers.Contract(
+      RKITTY_ADDRESS,
       (
-        await artifacts.readArtifact("DividendDistributor")
+        await artifacts.readArtifact("IERC20")
       ).abi,
       this.account1
     );
 
-    this.pairAddress = await this.hydro.pair();
+    const Hydro = await ethers.getContractFactory("H2Ov2");
+    this.hydro = await Hydro.deploy(day);
+    await this.hydro.deployed();
+
+    await this.factory.createPair(this.hydro.address, tokenBAddress);
+    this.pairAddress = await this.factory.getPair(
+      this.hydro.address,
+      tokenBAddress
+    );
+
+    const LiqPlugin = await ethers.getContractFactory("H2OLiquidityPlugin");
+    this.liqPlugin = await LiqPlugin.deploy(this.hydro.address);
+    await this.liqPlugin.deployed();
+    await this.liqPlugin.setupLiquiditiyPair(routerAddress, this.pairAddress);
+    await this.hydro.setupPlugin(1, this.liqPlugin.address);
+
+    const DistPlugin = await ethers.getContractFactory("H2ODistributorPlugin");
+    this.distPlugin = await DistPlugin.deploy(this.hydro.address);
+    await this.distPlugin.deployed();
+    await this.distPlugin.setupBaseRouter(
+      routerAddress,
+      [this.hydro.address, FINN_ADDRESS, this.wethAddress],
+      [this.wethAddress, FINN_ADDRESS, this.hydro.address]
+    );
+    await this.distPlugin.setupRewardToken(
+      RKITTY_ADDRESS,
+      routerAddress,
+      [this.hydro.address, FINN_ADDRESS, RKITTY_ADDRESS],
+      [RKITTY_ADDRESS, FINN_ADDRESS, this.wethAddress],
+      [this.wethAddress, FINN_ADDRESS, RKITTY_ADDRESS]
+    );
+    await this.hydro.setupPlugin(2, this.distPlugin.address);
+
     this.pair = await new ethers.Contract(
       this.pairAddress,
       (
@@ -104,12 +138,11 @@ describe("Hydro", function () {
   });
 
   it("is correctly configured", async function () {
-    expect(await this.hydro.autoLiquidityReceiver()).to.equal(
-      this.account1.address
-    );
     expect(await this.hydro.totalSupply()).to.equal(
       await this.hydro.balanceOf(this.account1.address)
     );
+
+    expect(await this.liqPlugin.pair()).to.equal(await this.hydro.pair());
   });
 
   describe("transferFrom", async function () {
@@ -156,7 +189,9 @@ describe("Hydro", function () {
         this.account2.address,
         amount.mul(2)
       );
-      await expect(transfer).to.revertedWith("Transfer amount exceeds the bag size.");
+      await expect(transfer).to.revertedWith(
+        "Transfer amount exceeds the bag size."
+      );
 
       await this.hydro.setIsWalletLimitExempt(this.account2.address, true);
       await this.hydro.transfer(this.account2.address, amount.mul(2));
@@ -168,42 +203,7 @@ describe("Hydro", function () {
 
   describe("fees", async function () {
     beforeEach(async function () {
-      const ethBalance = await ethers.provider.getBalance(
-        this.account1.address
-      );
-      await this.router.swapExactETHForTokens(
-        0,
-        [this.wethAddress, tokenBAddress],
-        this.account1.address,
-        this.deadline,
-        {
-          value: ethBalance.div(2),
-        }
-      );
-
-      const tokenABal = (await this.hydro.balanceOf(this.account1.address))
-        .mul(20)
-        .div(100);
-      const tokenBBal = await this.tokenB.balanceOf(this.account1.address);
-      await this.hydro.approve(
-        this.router.address,
-        ethers.utils.parseUnits("1", 30)
-      );
-      await this.tokenB.approve(
-        this.router.address,
-        ethers.utils.parseUnits("1", 30)
-      );
-
-      await this.router.addLiquidity(
-        this.hydro.address,
-        tokenBAddress,
-        tokenABal,
-        tokenBBal,
-        0,
-        0,
-        this.account1.address,
-        this.deadline
-      );
+      await addLiquidity(this);
     });
 
     it("is 5% when sending between users", async function () {
@@ -244,107 +244,68 @@ describe("Hydro", function () {
       expect(afterBalance.sub(beforeBalance)).to.equal(amount.mul(90).div(100));
     });
 
-    async function buyActions(_tokenBAdddress, _router) {
-      const bAddress = _tokenBAdddress || tokenBAddress;
-      const router = _router || context.router;
-
-      const amount = ethers.BigNumber.from(10).pow(7);
-      tokenB = await new ethers.Contract(
-        bAddress,
-        (
-          await artifacts.readArtifact("IERC20")
-        ).abi,
-        context.account1
-      );
-
-      await context.hydro.transfer(context.account2.address, amount);
-      await context.hydro.transfer(context.account3.address, amount);
-
-      await context.hydro
-        .connect(context.account2)
-        .approve(router.address, ethers.utils.parseUnits("1", 30));
-      await tokenB
-        .connect(context.account2)
-        .approve(router.address, ethers.utils.parseUnits("1", 30));
-
-      await context.hydro
-        .connect(context.account3)
-        .approve(router.address, ethers.utils.parseUnits("1", 30));
-      await tokenB
-        .connect(context.account3)
-        .approve(router.address, ethers.utils.parseUnits("1", 30));
-
-      // need to do some transaction before proceeding, so that there will be something to swap with
-      for (let i = 0; i < 10; i++) {
-        const tokenAmount = await context.hydro.balanceOf(
-          context.account3.address
-        );
-        await router
-          .connect(context.account3)
-          .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            tokenAmount,
-            1,
-            [context.hydro.address, bAddress],
-            context.account3.address,
-            context.deadline
-          );
-
-        const tokenBAmount = await tokenB.balanceOf(context.account3.address);
-        await router
-          .connect(context.account3)
-          .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            tokenBAmount,
-            1,
-            [bAddress, context.hydro.address],
-            context.account3.address,
-            context.deadline
-          );
-      }
-    }
-
     it("is buyback working", async function () {
-      await buyActions();
+      await buyActions(this);
 
-      await this.hydro.setSwapBackSettings(
-        true,
-        ethers.BigNumber.from(10).pow(18 + 9)
-      );
-      await this.hydro.setTargetLiquidity(100, 100);
-      await this.hydro.setDistributionCriteria(0, 0);
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+      await this.distPlugin.setDistributionCriteria(0, 0);
+      await this.distPlugin.setH2ODepositThreshold(0);
 
       const newAmount = await this.hydro.balanceOf(this.account2.address);
 
-      expect(await this.weth.balanceOf(this.account1.address)).to.equal(
+      expect(await this.rkitty.balanceOf(this.account1.address)).to.equal(
         ethers.BigNumber.from(0)
       );
 
-      const beforeBalance = await this.hydro.balanceOf(this.pairAddress);
+      let currentHydroBal = await this.hydro.balanceOf(this.hydro.address);
+
+      const transferAmount = newAmount.div(2);
+
+      let beforeBalance = await this.hydro.balanceOf(this.pairAddress);
       await this.router
         .connect(this.account2)
         .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-          newAmount.div(2),
+          transferAmount,
           1,
           [this.hydro.address, tokenBAddress],
           this.account2.address,
           this.deadline
         );
-      const afterBalance = await this.hydro.balanceOf(this.pairAddress);
+      let afterBalance = await this.hydro.balanceOf(this.pairAddress);
 
-      expect(afterBalance.sub(beforeBalance).toNumber()).to.be.above(
-        newAmount.mul(90).div(100).toNumber()
+      expect(afterBalance.sub(beforeBalance)).to.equal(
+        currentHydroBal.add(transferAmount.mul(9).div(10))
       );
-      expect(await this.weth.balanceOf(this.account1.address)).to.not.equal(
-        ethers.BigNumber.from(0)
+      const kittyBal = await this.rkitty.balanceOf(this.account1.address);
+      expect(kittyBal).to.not.equal(ethers.BigNumber.from(0));
+
+      currentHydroBal = await this.hydro.balanceOf(this.hydro.address);
+      const secondTransfarAmount = transferAmount.div(2);
+      beforeBalance = await this.hydro.balanceOf(this.pairAddress);
+      await this.router
+        .connect(this.account2)
+        .swapExactTokensForTokensSupportingFeeOnTransferTokens(
+          transferAmount.div(2),
+          1,
+          [this.hydro.address, tokenBAddress],
+          this.account2.address,
+          this.deadline
+        );
+      afterBalance = await this.hydro.balanceOf(this.pairAddress);
+
+      expect(afterBalance.sub(beforeBalance)).to.equal(
+        currentHydroBal.add(secondTransfarAmount.mul(9).div(10))
       );
     });
 
-    it("is changing token works", async function () {
-      await buyActions();
+    it("is changing token to native token works", async function () {
+      await buyActions(this);
 
-      await this.hydro.setSwapBackSettings(
-        true,
-        ethers.BigNumber.from(10).pow(18 + 9)
-      );
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+      await this.distPlugin.setDistributionCriteria(0, 0);
+      await this.distPlugin.setH2ODepositThreshold(0);
 
       let newAmount = await this.hydro.balanceOf(this.account2.address);
       await this.router
@@ -357,39 +318,33 @@ describe("Hydro", function () {
           this.deadline
         );
 
-      const ust = await new ethers.Contract(
-        "0xa47c8bf37f92abed4a126bda807a7b7498661acd",
-        (
-          await artifacts.readArtifact("IERC20")
-        ).abi,
-        this.account1
+      expect(await this.tokenB.balanceOf(this.account1.address)).to.equal(
+        ethers.BigNumber.from(0)
       );
-
-      expect(await ust.balanceOf(this.account1.address)).to.equal(
+      expect(await this.rkitty.balanceOf(this.distPlugin.address)).to.not.equal(
         ethers.BigNumber.from(0)
       );
 
-      await this.hydro.setReflectToken(
-        // UST
-        "0xa47c8bf37f92abed4a126bda807a7b7498661acd",
-        ["0xa47c8bf37f92abed4a126bda807a7b7498661acd", this.wethAddress],
-        [this.wethAddress, "0xa47c8bf37f92abed4a126bda807a7b7498661acd"],
-        altRouterAddress,
+      await this.distPlugin.changeRewardToken(
+        this.wethAddress,
+        routerAddress,
+        [this.hydro.address, FINN_ADDRESS, this.wethAddress],
+        [this.wethAddress, FINN_ADDRESS, this.wethAddress],
+        [this.wethAddress],
         false
       );
 
-      expect(await ust.balanceOf(this.account1.address)).to.equal(
+      expect(await this.weth.balanceOf(this.account1.address)).to.equal(
         ethers.BigNumber.from(0)
       );
 
-      await this.hydro.setSwapBackSettings(true, 1);
+      await this.hydro.setAutoSwapThreshold(0);
+      await this.hydro.setAutoDistributorSettings(0);
 
-      await buyActions();
+      await buyActions(this);
 
-      await this.hydro.setSwapBackSettings(
-        true,
-        ethers.BigNumber.from(10).pow(18 + 9)
-      );
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
 
       newAmount = await this.hydro.balanceOf(this.account2.address);
       await this.router
@@ -402,17 +357,144 @@ describe("Hydro", function () {
           this.deadline
         );
 
-      expect(await ust.balanceOf(this.account1.address)).to.not.equal(
+      expect(await this.weth.balanceOf(this.account1.address)).to.not.equal(
+        ethers.BigNumber.from(0)
+      );
+    });
+
+    it("is changing token to non-native token works", async function () {
+      await buyActions(this);
+
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+      await this.distPlugin.setDistributionCriteria(0, 0);
+      await this.distPlugin.setH2ODepositThreshold(0);
+
+      let newAmount = await this.hydro.balanceOf(this.account2.address);
+      await this.router
+        .connect(this.account2)
+        .swapExactTokensForTokensSupportingFeeOnTransferTokens(
+          newAmount.div(2),
+          1,
+          [this.hydro.address, tokenBAddress],
+          this.account2.address,
+          this.deadline
+        );
+
+      expect(await this.tokenB.balanceOf(this.account1.address)).to.equal(
+        ethers.BigNumber.from(0)
+      );
+      expect(await this.rkitty.balanceOf(this.distPlugin.address)).to.not.equal(
         ethers.BigNumber.from(0)
       );
 
-      await this.distributor.process(500000);
+      await this.distPlugin.changeRewardToken(
+        FINN_ADDRESS,
+        routerAddress,
+        [this.hydro.address, FINN_ADDRESS],
+        [FINN_ADDRESS, this.wethAddress],
+        [this.wethAddress, FINN_ADDRESS],
+        false
+      );
+
+      expect(await this.tokenB.balanceOf(this.account1.address)).to.equal(
+        ethers.BigNumber.from(0)
+      );
+
+      await this.hydro.setAutoSwapThreshold(0);
+      await this.hydro.setAutoDistributorSettings(0);
+
+      await buyActions(this);
+
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+
+      newAmount = await this.hydro.balanceOf(this.account2.address);
+      await this.router
+        .connect(this.account2)
+        .swapExactTokensForTokensSupportingFeeOnTransferTokens(
+          newAmount.div(2),
+          1,
+          [this.hydro.address, tokenBAddress],
+          this.account2.address,
+          this.deadline
+        );
+
+      expect(await this.tokenB.balanceOf(this.account1.address)).to.not.equal(
+        ethers.BigNumber.from(0)
+      );
+    });
+
+    it("is changing token to h2o token works", async function () {
+      await buyActions(this);
+
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+      await this.distPlugin.setDistributionCriteria(0, 0);
+      await this.distPlugin.setH2ODepositThreshold(0);
+
+      let newAmount = await this.hydro.balanceOf(this.account2.address);
+      await this.router
+        .connect(this.account2)
+        .swapExactTokensForTokensSupportingFeeOnTransferTokens(
+          newAmount.div(2),
+          1,
+          [this.hydro.address, tokenBAddress],
+          this.account2.address,
+          this.deadline
+        );
+
+      expect(await this.tokenB.balanceOf(this.account1.address)).to.equal(
+        ethers.BigNumber.from(0)
+      );
+      expect(await this.rkitty.balanceOf(this.distPlugin.address)).to.not.equal(
+        ethers.BigNumber.from(0)
+      );
+
+      await this.distPlugin.changeRewardToken(
+        this.hydro.address,
+        routerAddress,
+        [this.hydro.address],
+        [this.hydro.address, FINN_ADDRESS, this.wethAddress],
+        [this.wethAddress, FINN_ADDRESS, this.hydro.address],
+        false
+      );
+
+      expect(await this.tokenB.balanceOf(this.account1.address)).to.equal(
+        ethers.BigNumber.from(0)
+      );
+
+      await this.hydro.setAutoSwapThreshold(0);
+      await this.hydro.setAutoDistributorSettings(0);
+
+      await buyActions(this);
+
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+
+      const balBefore = await this.hydro.balanceOf(this.account1.address);
+      newAmount = await this.hydro.balanceOf(this.account2.address);
+      await this.router
+        .connect(this.account2)
+        .swapExactTokensForTokensSupportingFeeOnTransferTokens(
+          newAmount.div(2),
+          1,
+          [this.hydro.address, tokenBAddress],
+          this.account2.address,
+          this.deadline
+        );
+      const balAfter = await this.hydro.balanceOf(this.account1.address);
+
+      expect(balAfter.sub(balBefore)).to.not.equal(ethers.BigNumber.from(0));
     });
 
     it("is changing base pair works", async function () {
-      await buyActions();
+      await buyActions(this);
 
-      await this.pair.approve(this.router.address, ethers.utils.parseUnits("1", 30));
+      await this.pair.approve(
+        this.router.address,
+        ethers.utils.parseUnits("1", 30)
+      );
       await this.router.removeLiquidity(
         this.hydro.address,
         tokenBAddress,
@@ -423,7 +505,7 @@ describe("Hydro", function () {
         this.deadline
       );
 
-      await this.router.swapExactTokensForTokens(
+      await this.router.swapExactTokensForTokensSupportingFeeOnTransferTokens(
         await this.tokenB.balanceOf(this.account1.address),
         0,
         [tokenBAddress, this.wethAddress],
@@ -445,18 +527,13 @@ describe("Hydro", function () {
         ethers.utils.parseUnits("1", 30)
       );
 
-      await this.hydro.changeLiquiditiyPair(
+      await this.liqPlugin.changeLiquiditiyPair(
         this.altRouter.address,
-        this.altPairAddress,
-        [this.hydro.address, this.wethAddress],
-        [this.wethAddress, this.hydro.address],
-        [this.wethAddress]
+        this.altPairAddress
       );
 
-      await this.hydro.setSwapBackSettings(
-        false,
-        1
-      );
+      await this.hydro.setAutoSwapThreshold(0);
+      await this.hydro.setAutoDistributorSettings(0);
       await this.altRouter.addLiquidity(
         this.hydro.address,
         this.wethAddress,
@@ -467,48 +544,39 @@ describe("Hydro", function () {
         this.account1.address,
         this.deadline
       );
-      await this.hydro.setSwapBackSettings(
-        true,
-        1
-      );
 
-      await buyActions(this.wethAddress, this.altRouter);
+      await buyActions(this, this.wethAddress, this.altRouter);
 
-      await this.hydro.setSwapBackSettings(
-        true,
-        ethers.BigNumber.from(10).pow(18 + 9)
-      );
-      await this.hydro.setTargetLiquidity(100, 100);
-      await this.hydro.setDistributionCriteria(0, 0);
+      await this.hydro.setAutoSwapThreshold(1);
+      await this.hydro.setAutoDistributorSettings(500000);
+      await this.distPlugin.setDistributionCriteria(0, 0);
+      await this.distPlugin.setH2ODepositThreshold(0);
 
       await this.hydro.transfer(this.account2.address, 1000000);
       const beforeBal = await this.hydro.balanceOf(this.altPairAddress);
       const newAmount = await this.hydro.balanceOf(this.account2.address);
-      
 
-      await this.hydro.connect(this.account2).approve(
-        this.altRouter.address,
-        ethers.utils.parseUnits("1", 30)
-      );
-      await this.weth.connect(this.account2).approve(
-        this.altRouter.address,
-        ethers.utils.parseUnits("1", 30)
-      );
+      await this.hydro
+        .connect(this.account2)
+        .approve(this.altRouter.address, ethers.utils.parseUnits("1", 30));
+      await this.weth
+        .connect(this.account2)
+        .approve(this.altRouter.address, ethers.utils.parseUnits("1", 30));
       await this.altRouter
         .connect(this.account2)
         .swapExactTokensForTokensSupportingFeeOnTransferTokens(
           newAmount.div(2),
-          1,
+          0,
           [this.hydro.address, this.wethAddress],
           this.account2.address,
           this.deadline
         );
       const afterBal = await this.hydro.balanceOf(this.altPairAddress);
 
-      expect(await this.weth.balanceOf(this.account1.address)).to.not.equal(
+      expect(await this.rkitty.balanceOf(this.account1.address)).to.not.equal(
         ethers.BigNumber.from(0)
       );
-      expect(afterBal.sub(beforeBal).toNumber()).to.be.above(0);
+      expect(afterBal.sub(beforeBal)).to.not.equal(ethers.BigNumber.from(0));
     });
   });
 });

@@ -1,33 +1,25 @@
 const hardhat = require("hardhat");
 
 const ethers = hardhat.ethers;
-const lpNativeAmount = ethers.utils.parseUnits("5", "ether");
+const lpNativeAmount = ethers.utils.parseUnits("0.2", "ether");
 const week = 60 * 60 * 24 * 7;
 
+const isMainnet = false;
 // MOONRIVER
 // huckleberr
-const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
-// rkitty
-const reflectTokenAddress = "0xC2b0435276139731d82Ae2Fa8928c9b9De0761c1";
-const finnAddress = "0x9A92B5EBf1F6F6f7d93696FCD44e5Cf75035A756";
-// finn
-const tokenBAddress = finnAddress;
-const multisigAddress = "0x855246BE70485D9FCcF91d91bD4050CEf60b20cC";
+// const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
+// // rkitty
+// const reflectTokenAddress = "0xC2b0435276139731d82Ae2Fa8928c9b9De0761c1";
+// const finnAddress = "0x9A92B5EBf1F6F6f7d93696FCD44e5Cf75035A756";
+// // finn
+// const tokenBAddress = finnAddress;
+// const multisigAddress = "0x855246BE70485D9FCcF91d91bD4050CEf60b20cC";
 
 // ALPHA
 // huckleberr
-// const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
-// OUR OWN TOKEN
-// const tokenBAddress = "0xc9a83Ae57fCe2eA09a276C0C33ab2F2260BE99F1";
-// const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
-
-// ROPSTEN
-// const routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
-// // dai
-// const tokenBAddress = "0xad6d458402f60fd3bd25163575031acdce07538d";
-// const wMovrAddress = "0xc778417e063141139fce010982780140aa0cd5ab";
-// const reflectTokenAddress = wMovrAddress;
-// const multisigAddress = "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020";
+const routerAddress = "0x2d4e873f9Ab279da9f1bb2c532d4F06f67755b77";
+const tokenBAddress = "0x31b1644f8379a22d25f845a67f1ab346e76001aa";
+const reflectTokenAddress = "0x8353BBf26497cb9288668FdBdDE3c1b81Ee6a715";
 
 
 async function main() {
@@ -36,6 +28,8 @@ async function main() {
   const signer = await ethers.getSigner();
   const accountAddress = (await ethers.getSigner()).address;
   console.log("Deploying...", accountAddress);
+
+  const multisigAddress = isMainnet ? "0x60EA7c492BbA67921DFd2fF8190079d55D1Bc020" : accountAddress;
 
   const router = await new ethers.Contract(
     routerAddress,
@@ -54,8 +48,8 @@ async function main() {
   console.log("h2o address ", h2o.address);
   await h2o.setup(
     reflectTokenAddress,
-    [reflectTokenAddress, finnAddress, wMovrAddress],
-    [wMovrAddress, finnAddress, reflectTokenAddress]
+    [reflectTokenAddress, tokenBAddress, wMovrAddress],
+    [wMovrAddress, tokenBAddress, reflectTokenAddress]
   );
   console.log("setup finished");
 

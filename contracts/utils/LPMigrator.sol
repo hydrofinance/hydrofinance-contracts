@@ -7,11 +7,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "./interfaces/IUniswapV2Router02.sol";
-import "./interfaces/IUniswapV2Factory.sol";
-import "./interfaces/IWETH.sol";
+import "../interfaces/IUniswapV2Router02.sol";
+import "../interfaces/IUniswapV2Factory.sol";
+import "../interfaces/IWETH.sol";
 
-import "hardhat/console.sol";
+// import "hardhat/console.sol";
 
 contract LPMigrator is Ownable {
     using SafeERC20 for IERC20;
@@ -54,7 +54,7 @@ contract LPMigrator is Ownable {
         address _tokenB,
         address[] memory _tokenBToNativeRoute,
         address[] memory _nativeToTokenBRoute
-    ) public onlyOwner {
+    ) external onlyOwner {
         routerCandidate = RouterCandidate({
             router: _routerAddress,
             tokenB: _tokenB,
@@ -66,7 +66,7 @@ contract LPMigrator is Ownable {
         emit NewRouterCandidate(_routerAddress);
     }
 
-    function upgradeRouter() public onlyOwner {
+    function upgradeRouter() external onlyOwner {
         require(routerCandidate.router != address(0), "There is no candidate");
         require(
             routerCandidate.proposedTime.add(approvalDelay) < block.timestamp,
@@ -74,6 +74,7 @@ contract LPMigrator is Ownable {
         );
 
         _removeLiquidity();
+
         routerAddress = routerCandidate.router;
         tokenBAddress = routerCandidate.tokenB;
         tokenBToNativeRoute = routerCandidate.tokenBToNativeRoute;
@@ -144,7 +145,7 @@ contract LPMigrator is Ownable {
         initialized = true;
     }
 
-    function increaseApprovalDelayTo(uint256 _approvalDelay) public onlyOwner {
+    function increaseApprovalDelayTo(uint256 _approvalDelay) external onlyOwner {
         require(
             _approvalDelay > approvalDelay,
             "!new approval delay smaller than old"
